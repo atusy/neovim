@@ -2043,3 +2043,59 @@ int main()
     end
   end)
 end)
+
+describe('semantic token request replacement', function()
+  for _, kind in ipairs({ 'full', 'range' }) do
+    for _, reply in ipairs({ 'null', 'error' }) do
+      it(
+        'preserves a newer ' .. kind .. ' request after an obsolete ' .. reply .. ' response',
+        function()
+          local result = exec_lua(function(request_kind, response_kind)
+            local requests = {}
+            local server
+            local method = 'textDocument/semanticTokens/' .. request_kind
+            server = _G._create_server({
+              capabilities = {
+                semanticTokensProvider = {
+                  legend = { tokenTypes = {}, tokenModifiers = {} },
+                  full = true,
+                  range = true,
+                },
+              },
+              handlers = {
+                [method] = function(_, _, callback)
+                  requests[#requests + 1] = { callback = callback, id = #server.messages }
+                end,
+              },
+            })
+            local id = assert(_G._start_server(server))
+            assert(vim.wait(1000, function()
+              return #requests == 1
+            end))
+            local highlighter =
+              vim.lsp.semantic_tokens.__STHighlighter.active[vim.api.nvim_get_current_buf()]
+            local state = highlighter.client_state[id]
+            local client = vim.lsp.get_client_by_id(id)
+            if request_kind == 'full' then
+              highlighter:send_full_delta_request(client, state, 2)
+            else
+              highlighter:send_range_request(client, state, 2)
+            end
+            assert(#requests == 2)
+            local active = request_kind == 'full' and state.active_request
+              or state.active_range_request
+            local expected = vim.deepcopy(active)
+            local err = response_kind == 'error' and { code = -32801, message = 'Content modified' }
+              or nil
+            requests[1].callback(err, nil, requests[1].id)
+            local actual = vim.deepcopy(active)
+            requests[2].callback(err, nil, requests[2].id)
+            return { expected, actual, active }
+          end, kind, reply)
+          eq(result[1], result[2])
+          eq({}, result[3])
+        end
+      )
+    end
+  end
+end)

@@ -352,8 +352,10 @@ function STHighlighter:send_range_request(client, state, version)
       if err then
         vim.lsp.log.error('semantic_tokens', err)
       end
-      active_request.request_id = nil
-      active_request.version = nil
+      if active_request.request_id == ctx.request_id then
+        active_request.request_id = nil
+        active_request.version = nil
+      end
       return
     end
 
@@ -413,8 +415,10 @@ function STHighlighter:send_full_delta_request(client, state, version)
       if err then
         vim.lsp.log.error('semantic_tokens', err)
       end
-      active_request.request_id = nil
-      active_request.version = nil
+      if active_request.request_id == ctx.request_id then
+        active_request.request_id = nil
+        active_request.version = nil
+      end
       return
     end
 
