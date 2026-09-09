@@ -396,9 +396,11 @@ function STHighlighter:send_full_delta_request(client, state, version)
   ---@type vim.lsp.protocol.Method.ClientToServer.Request
   local method = 'textDocument/semanticTokens/full'
 
+  local previous_tokens
   if state.supports_delta and current_result.result_id then
     method = 'textDocument/semanticTokens/full/delta'
     params.previousResultId = current_result.result_id
+    previous_tokens = current_result.tokens
   end
 
   ---@param response? lsp.SemanticTokens|lsp.SemanticTokensDelta
@@ -424,7 +426,8 @@ function STHighlighter:send_full_delta_request(client, state, version)
       client,
       ctx.request_id,
       version,
-      false
+      false,
+      previous_tokens
     )
   end, self.bufnr)
 
@@ -500,8 +503,16 @@ end
 ---@param request_id integer
 ---@param version integer
 ---@param is_range_request boolean
+---@param previous_tokens? integer[] Baseline captured when requesting a delta.
 ---@private
-function STHighlighter:process_response(response, client, request_id, version, is_range_request)
+function STHighlighter:process_response(
+  response,
+  client,
+  request_id,
+  version,
+  is_range_request,
+  previous_tokens
+)
   local state = self.client_state[client.id]
   if not state then
     return
@@ -534,7 +545,8 @@ function STHighlighter:process_response(response, client, request_id, version, i
     end)
 
     tokens = {} --- @type integer[]
-    local old_tokens = assert(state.current_result.tokens)
+    -- A range response may have replaced current_result while the delta was pending.
+    local old_tokens = assert(previous_tokens)
     local idx = 1
     for _, token_edit in ipairs(token_edits) do
       vim.list_extend(tokens, old_tokens, idx, token_edit.start)

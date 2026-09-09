@@ -2043,3 +2043,49 @@ int main()
     end
   end)
 end)
+
+describe('semantic token delta baseline', function()
+  it('uses the requested delta baseline after a range response', function()
+    local expected = { 0, 0, 1, 0, 0, 1, 0, 1, 0, 0 }
+    local actual = exec_lua(function(baseline)
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'aa', 'bb' })
+      local pending = {}
+      local server
+      local function defer(method, params, callback)
+        pending[method] = { callback = callback, id = #server.messages, params = params }
+      end
+      server = _G._create_server({
+        capabilities = {
+          semanticTokensProvider = {
+            legend = { tokenTypes = { 'variable' }, tokenModifiers = {} },
+            full = { delta = true },
+            range = true,
+          },
+        },
+        handlers = {
+          ['textDocument/semanticTokens/full'] = function(_, _, callback)
+            callback(nil, { data = baseline, resultId = 'baseline' }, #server.messages)
+          end,
+          ['textDocument/semanticTokens/full/delta'] = defer,
+          ['textDocument/semanticTokens/range'] = defer,
+        },
+      })
+      local id = assert(_G._start_server(server))
+      local highlighter, state
+      assert(vim.wait(1000, function()
+        highlighter = vim.lsp.semantic_tokens.__STHighlighter.active[vim.api.nvim_get_current_buf()]
+        state = highlighter and highlighter.client_state[id]
+        return state and state.has_full_result
+      end))
+      highlighter:mark_dirty(id)
+      highlighter:send_request(id)
+      local range = pending['textDocument/semanticTokens/range']
+      local delta = pending['textDocument/semanticTokens/full/delta']
+      assert(delta.params.previousResultId == 'baseline')
+      range.callback(nil, { data = { 0, 0, 1, 0, 0 } }, range.id)
+      delta.callback(nil, { edits = {}, resultId = 'latest' }, delta.id)
+      return state.current_result.tokens
+    end, expected)
+    eq(expected, actual)
+  end)
+end)
